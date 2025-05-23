@@ -1,0 +1,278 @@
+#include <iostream>
+#include <vector>
+#include <string>
+#include <algorithm>
+#include <ctime>
+
+using namespace std;
+
+// ---------- Enums ----------
+enum class BookStatus { AVAILABLE, BORROWED, RESERVED, LOST };
+
+// ---------- Book & BookItem ----------
+class Book {
+public:
+    string title;
+    string author;
+    string ISBN;
+
+    Book(string t, string a, string i) : title(t), author(a), ISBN(i) {}
+};
+
+class BookItem {
+private:
+    Book* book;
+    string barcode;
+    BookStatus status;
+
+public:
+    BookItem(Book* b, string bc) : book(b), barcode(bc), status(BookStatus::AVAILABLE) {}
+
+    Book* getBook() { return book; }
+    string getBarcode() { return barcode; }
+    BookStatus getStatus() { return status; }
+    void setStatus(BookStatus s) { status = s; }
+};
+
+// ---------- Catalog ----------
+class Catalog {
+private:
+    vector<BookItem*> books;
+
+public:
+    void addBookItem(BookItem* item) {
+        books.push_back(item);
+    }
+
+    void searchByTitle(const string& title) {
+        cout << "\n🔍 Search Results for title: '" << title << "'\n";
+        for (auto bookItem : books) {
+            if (bookItem->getBook()->title == title) {
+                cout << " - [" << bookItem->getBarcode() << "] " << bookItem->getBook()->title
+                     << " by " << bookItem->getBook()->author
+                     << " (Status: " << (bookItem->getStatus() == BookStatus::AVAILABLE ? "Available" : "Unavailable") << ")\n";
+            }
+        }
+    }
+
+    void searchByAuthor(const string& author) {
+        cout << "\n🔍 Search Results for author: '" << author << "'\n";
+        for (auto bookItem : books) {
+            if (bookItem->getBook()->author == author) {
+                cout << " - [" << bookItem->getBarcode() << "] " << bookItem->getBook()->title
+                     << " by " << bookItem->getBook()->author
+                     << " (Status: " << (bookItem->getStatus() == BookStatus::AVAILABLE ? "Available" : "Unavailable") << ")\n";
+            }
+        }
+    }
+};
+
+// ---------- DateHelper ----------
+class DateHelper {
+public:
+    static time_t getCurrentDate() {
+        return time(nullptr);
+    }
+
+    static time_t addDays(time_t base, int days) {
+        return base + days * 24 * 60 * 60;
+    }
+
+    static int getDaysLate(time_t dueDate, time_t returnDate) {
+        double diff = difftime(returnDate, dueDate);
+        return diff > 0 ? static_cast<int>(diff / (24 * 60 * 60)) : 0;
+    }
+};
+
+// ---------- Transaction ----------
+struct Transaction {
+    BookItem* bookItem;
+    time_t issueDate;
+    time_t dueDate;
+
+    Transaction(BookItem* item, time_t issue, time_t due)
+        : bookItem(item), issueDate(issue), dueDate(due) {}
+};
+
+// ---------- Forward Declaration ----------
+class Account;
+
+// ---------- FineService ----------
+class FineService {
+    const double finePerDay = 1.0;
+
+public:
+    double calculateFine(time_t dueDate, time_t returnDate) {
+        int daysLate = DateHelper::getDaysLate(dueDate, returnDate);
+        return daysLate * finePerDay;
+    }
+};
+
+// ---------- BorrowingService ----------
+class BorrowingService {
+public:
+    bool borrowBook(Account* account, BookItem* item);
+    bool returnBook(Account* account, BookItem* item);
+};
+
+// ---------- Account ----------
+class Account {
+protected:
+    string id;
+    string name;
+    string email;
+    vector<BookItem*> borrowedBooks;
+    BorrowingService borrowingService;
+
+public:
+    Account(string i, string n, string e) : id(i), name(n), email(e) {}
+
+    virtual bool canBorrow() = 0;
+
+    virtual bool borrowBook(BookItem* item) {
+        return borrowingService.borrowBook(this, item);
+    }
+
+    virtual bool returnBook(BookItem* item) {
+        return borrowingService.returnBook(this, item);
+    }
+
+    void addBorrowedBook(BookItem* item) {
+        borrowedBooks.push_back(item);
+    }
+
+    void removeBorrowedBook(BookItem* item) {
+        borrowedBooks.erase(remove(borrowedBooks.begin(), borrowedBooks.end(), item), borrowedBooks.end());
+    }
+
+    bool hasBorrowedBook(BookItem* item) {
+        return find(borrowedBooks.begin(), borrowedBooks.end(), item) != borrowedBooks.end();
+    }
+
+    int getBorrowedBookCount() {
+        return borrowedBooks.size();
+    }
+
+    string getName() { return name; }
+
+    void searchBooksByTitle(Catalog& catalog, const string& title) {
+        catalog.searchByTitle(title);
+    }
+
+    void searchBooksByAuthor(Catalog& catalog, const string& author) {
+        catalog.searchByAuthor(author);
+    }
+};
+
+// ---------- Member ----------
+class Member : public Account {
+    static const int MAX_BORROW_LIMIT = 5;
+    vector<Transaction> transactions;
+    double totalFine = 0.0;
+    FineService fineService;
+
+public:
+    Member(string i, string n, string e) : Account(i, n, e) {}
+
+    bool canBorrow() override {
+        return getBorrowedBookCount() < MAX_BORROW_LIMIT;
+    }
+
+    bool borrowBook(BookItem* item) override {
+        if (!Account::borrowBook(item)) return false;
+        time_t now = DateHelper::getCurrentDate();
+        time_t due = DateHelper::addDays(now, 14);
+        transactions.emplace_back(item, now, due);
+        return true;
+    }
+
+    bool returnBook(BookItem* item) override {
+        auto it = find_if(transactions.begin(), transactions.end(),
+                          [item](const Transaction& t) { return t.bookItem == item; });
+
+        if (it != transactions.end()) {
+            time_t now = DateHelper::getCurrentDate();
+            double fine = fineService.calculateFine(it->dueDate, now);
+            if (fine > 0) {
+                cout << "Fine for " << name << ": $" << fine << endl;
+                totalFine += fine;
+            }
+            transactions.erase(it);
+        }
+
+        return Account::returnBook(item);
+    }
+
+    double getTotalFine() const {
+        return totalFine;
+    }
+};
+
+// ---------- Librarian ----------
+class Librarian : public Account {
+public:
+    Librarian(string i, string n, string e) : Account(i, n, e) {}
+
+    bool canBorrow() override {
+        return true;
+    }
+};
+
+// ---------- BorrowingService Implementation ----------
+bool BorrowingService::borrowBook(Account* account, BookItem* item) {
+    if (!account->canBorrow()) {
+        cout << account->getName() << " cannot borrow more books." << endl;
+        return false;
+    }
+
+    if (item->getStatus() != BookStatus::AVAILABLE) {
+        cout << "Book '" << item->getBook()->title << "' is not available." << endl;
+        return false;
+    }
+
+    item->setStatus(BookStatus::BORROWED);
+    account->addBorrowedBook(item);
+    cout << account->getName() << " borrowed '" << item->getBook()->title << "'" << endl;
+    return true;
+}
+
+bool BorrowingService::returnBook(Account* account, BookItem* item) {
+    if (!account->hasBorrowedBook(item)) {
+        cout << account->getName() << " has not borrowed '" << item->getBook()->title << "'" << endl;
+        return false;
+    }
+
+    item->setStatus(BookStatus::AVAILABLE);
+    account->removeBorrowedBook(item);
+    cout << account->getName() << " returned '" << item->getBook()->title << "'" << endl;
+    return true;
+}
+
+// ---------- Main Function ----------
+int main() {
+    // Create catalog and books
+    Catalog catalog;
+    Book book1("1984", "George Orwell", "ISBN101");
+    Book book2("Clean Code", "Robert C. Martin", "ISBN102");
+    BookItem item1(&book1, "BC001");
+    BookItem item2(&book2, "BC002");
+    BookItem item3(&book2, "BC003");
+
+    catalog.addBookItem(&item1);
+    catalog.addBookItem(&item2);
+    catalog.addBookItem(&item3);
+
+    // Create users
+    Member member("M001", "Alice", "alice@example.com");
+    Librarian librarian("L001", "Bob", "bob@example.com");
+
+    // Both search for books
+    member.searchBooksByTitle(catalog, "Clean Code");
+    librarian.searchBooksByAuthor(catalog, "George Orwell");
+
+    // Borrow and return
+    member.borrowBook(&item1);
+    member.returnBook(&item1);
+
+    return 0;
+}
