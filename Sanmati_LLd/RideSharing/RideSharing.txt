@@ -1,0 +1,236 @@
+#include "tripMgr.hpp"
+
+int main() {
+
+	//---------------Creating Riders and Drivers--------------------------------
+	Rider* keertiRider = new Rider("Keerti", RATING::FIVE_STARS);
+	Rider* gauravRider = new Rider("Gaurav", RATING::FIVE_STARS);
+	RiderMgr* riderMgr = RiderMgr::getRiderMgr();
+	riderMgr->addRider("keerti", keertiRider);
+	riderMgr->addRider("gaurav", gauravRider);
+
+	Driver* yogitaDriver = new Driver("Yogita", RATING::THREE_STARS);
+	Driver* riddhiDriver = new Driver("Riddhi", RATING::FOUR_STARS);
+	DriverMgr* driverMgr = DriverMgr::getDriverMgr();
+	driverMgr->addDriver("yogita", yogitaDriver);
+	driverMgr->addDriver("riddhi", riddhiDriver);
+
+	//These details in turn will be stored in database
+	//-------------------------------------------------------------------------
+
+	TripMgr* tripMgr = TripMgr::getTripMgr();
+
+
+	cout << endl << "Creating Trip for Keerti from location (10,10) to (30,30)" << endl;
+	tripMgr->CreateTrip(keertiRider, new Location(10, 10), new Location(30, 30));
+
+	cout << endl << "Creating Trip for Gaurav from location (200,200) to (500,500)" << endl;
+	tripMgr->CreateTrip(gauravRider, new Location(200, 200), new Location(500, 500));
+
+
+	//-------------------Display all the trips created--------------------------
+	unordered_map<int, Trip*> tripsMap = tripMgr->getTripsMap();
+	for (auto mapVal : tripsMap) {
+		(mapVal.second)->displayTripDetails();
+	}
+
+	return 0;
+}
+
+
+////Rider Mgr--------------------------------------------------------
+
+RiderMgr(){}
+	static RiderMgr* riderMgrInstance;
+	static mutex mtx;
+	unordered_map<string, Rider*> ridersMap;
+RiderMgr* RiderMgr::riderMgrInstance = nullptr;
+mutex RiderMgr::mtx;
+//aboveincluded in hpp
+
+RiderMgr* RiderMgr::getRiderMgr() {
+	if (riderMgrInstance == nullptr) {
+		mtx.lock();
+		if (riderMgrInstance == nullptr) {
+			riderMgrInstance = new RiderMgr();
+		}
+		mtx.unlock();
+	}
+	return riderMgrInstance;
+}
+
+void RiderMgr::addRider(string pRiderName, Rider* pRider) {
+	ridersMap[pRiderName] = pRider; 
+}
+Rider* RiderMgr::getRider(string pRiderName) {
+	return ridersMap[pRiderName];
+}
+
+
+/////Driver mgr----------------------------------
+
+DriverMgr(){}
+	static DriverMgr* driverMgrInstance;
+	static mutex mtx;	
+	unordered_map<string, Driver*> driversMap;
+
+DriverMgr* DriverMgr::driverMgrInstance = nullptr;
+mutex DriverMgr::mtx;
+//aboveincluded in hpp
+
+
+DriverMgr* DriverMgr::getDriverMgr() {
+	if (driverMgrInstance == nullptr) {
+		mtx.lock();
+		if (driverMgrInstance == nullptr) {
+			driverMgrInstance = new DriverMgr();
+		}
+		mtx.unlock();
+	}
+	return driverMgrInstance;
+}
+
+void DriverMgr::addDriver(string pDriverName, Driver * pDriver) {
+	driversMap[pDriverName] = pDriver;
+}
+Driver* DriverMgr::getDriver(string pDriverName) {
+	return driversMap[pDriverName];
+}
+
+unordered_map<string, Driver*> DriverMgr::getDriversMap() {
+	return driversMap;
+}
+
+//rider hpp-----------------------------------------------------------
+
+#pragma once
+#include "common.hpp"
+
+class Rider {
+	string name;
+	RATING rating;
+public:
+	Rider(string pName, RATING pRating) : name(pName), rating(pRating) {}
+	string getRiderName() {
+		return name;
+	}
+	RATING getRating() {
+		return rating;
+	}
+}; 
+
+//driver hpp----------------------------------------------------------
+
+#pragma once
+#include "common.hpp"
+
+class Driver {
+	string name;
+	bool avail;
+	RATING rating;
+public:
+	Driver(string pName, RATING pRating) : name(pName), rating(pRating) {
+		avail = false;
+	}
+	void updateAvail(bool pAvail) {
+		avail = pAvail;
+	}
+	string getDriverName() {
+		return name;
+	}
+	RATING getRating() {
+		return rating;
+	}
+};
+
+//common hpp-----------------------------------------------------
+
+#pragma once
+#include <iostream>
+#include "unordered_map"
+#include "location.hpp"
+
+using namespace std;
+
+static int nextTripId = 1;
+
+enum class RATING {
+	UNASSIGNED,
+	ONE_STAR,
+	TWO_STARS,
+	THREE_STARS,
+	FOUR_STARS,
+	FIVE_STARS,
+};
+
+enum class TRIP_STATUS {
+	UNASSIGNED,
+	DRIVER_ON_THE_WAY,
+	DRIVER_ARRIVED,
+	STARTED,
+	PAUSED,
+	CANCELLED,
+	ENDED,
+};
+
+class Util {
+public:
+	static string ratingToString(RATING pRating) {
+		if (pRating == RATING::ONE_STAR)
+			return "one star";
+		if (pRating == RATING::TWO_STARS)
+			return "two stars";
+		if (pRating == RATING::THREE_STARS)
+			return "three stars";
+		if (pRating == RATING::FOUR_STARS)
+			return "four stars";
+		if (pRating == RATING::FIVE_STARS)
+			return "five stars";
+		return "invalid rating";
+	}
+
+	static bool isHighRating(RATING pRating) {
+		return pRating == RATING::FOUR_STARS || pRating == RATING::FIVE_STARS;
+	}
+};
+
+//tripMgr--------------------------------------------
+
+#include "tripMgr.hpp"
+
+TripMgr* TripMgr::tripMgrInstance = nullptr;
+mutex TripMgr::mtx;
+
+
+TripMgr* TripMgr::getTripMgr() {
+	if (tripMgrInstance == nullptr) {
+		mtx.lock();
+		if (tripMgrInstance == nullptr) {
+			tripMgrInstance = new TripMgr();
+		}
+		mtx.unlock();
+	}
+	return tripMgrInstance;
+}
+
+void TripMgr::CreateTrip(Rider* pRider, Location* pSrcLoc, Location* pDstLoc) {
+	
+	TripMetaData* metaData = new TripMetaData(pSrcLoc, pDstLoc, pRider->getRating());
+	StrategyMgr* strategyMgr = StrategyMgr::getStrategyMgr();
+	PricingStrategy* pricingStrategy = strategyMgr->determinePricingStrategy(metaData);
+	DriverMatchingStrategy* driverMatchingStrategy = strategyMgr->determineMatchingStrategy(metaData);
+	
+	Driver* driver = driverMatchingStrategy->matchDriver(metaData);
+	double tripPrice = pricingStrategy->calculatePrice(metaData);
+
+	Trip* trip = new Trip(pRider, driver, pSrcLoc, pDstLoc, tripPrice, pricingStrategy, driverMatchingStrategy);
+	int tripId = trip->getTripId();
+	tripsInfo[tripId] = trip;
+	tripsMetaDataInfo[tripId] = metaData;
+}
+
+unordered_map<int, Trip*> TripMgr::getTripsMap() {
+	return tripsInfo;
+}
+
+//see keerti

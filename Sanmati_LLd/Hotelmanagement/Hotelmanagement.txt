@@ -1,0 +1,241 @@
+#include <iostream>
+#include <vector>
+#include <string>
+
+using namespace std;
+
+// ENUMS
+enum RoomType { SINGLE, DOUBLE, SUITE };
+enum RoomStatus { AVAILABLE, BOOKED, OCCUPIED };
+enum BookingStatus { ACTIVE, CANCELLED, COMPLETED };
+
+// STRUCT
+struct DateRange {
+    string startDate;
+    string endDate;
+};
+
+// HOUSEKEEPING
+class Housekeeping {
+public:
+    int roomId;
+    vector<string> tasks;
+    double charge;
+
+    Housekeeping(int id = 0) : roomId(id), charge(0) {}
+
+    void addTask(const string& task, double taskCharge) {
+        tasks.push_back(task);
+        charge += taskCharge;
+    }
+
+    double getCharge() const {
+        return charge;
+    }
+};
+
+// ROOM
+class Room {
+public:
+    int roomId;
+    RoomType type;
+    RoomStatus status;
+    double pricePerNight;
+    Housekeeping housekeeping;
+
+    Room(int id = 0, RoomType t = SINGLE, double price = 0.0)
+        : roomId(id), type(t), status(AVAILABLE), pricePerNight(price), housekeeping(id) {}
+
+    bool isAvailable() const {
+        return status == AVAILABLE;
+    }
+};
+
+// BOOKING
+class Booking {
+public:
+    int bookingId;
+    int roomId;
+    string guestName;
+    DateRange range;
+    BookingStatus status;
+
+    Booking(int id, int rId, const string& guest, const DateRange& dr)
+        : bookingId(id), roomId(rId), guestName(guest), range(dr), status(ACTIVE) {}
+
+    void cancel(vector<Room>& rooms) {
+        for (Room& room : rooms) {
+            if (room.roomId == roomId) {
+                room.status = AVAILABLE;
+                break;
+            }
+        }
+        status = CANCELLED;
+    }
+};
+
+// BILL
+class Bill {
+public:
+    static double generateBill(const Room& room, int nights) {
+        return room.pricePerNight * nights + room.housekeeping.getCharge();
+    }
+};
+
+// HOTEL DATA (Shared state)
+class HotelData {
+public:
+    static vector<Room> rooms;
+    static vector<Booking> bookings;
+
+    static Room* getRoomById(int roomId) {
+        for (Room& room : rooms) {
+            if (room.roomId == roomId) return &room;
+        }
+        return nullptr;
+    }
+
+    static Booking* getBookingById(int bookingId) {
+        for (Booking& booking : bookings) {
+            if (booking.bookingId == bookingId) return &booking;
+        }
+        return nullptr;
+    }
+};
+
+vector<Room> HotelData::rooms;
+vector<Booking> HotelData::bookings;
+
+// USER BASE CLASS
+class User {
+protected:
+    int userId;
+    string name;
+
+public:
+    User(int id, const string& n) : userId(id), name(n) {}
+
+    void searchRooms(RoomType type) const {
+        cout << "\nAvailable rooms of type " << type << ":\n";
+        for (const Room& room : HotelData::rooms) {
+            if (room.type == type && room.isAvailable()) {
+                cout << "  Room ID: " << room.roomId << ", Price: $" << room.pricePerNight << endl;
+            }
+        }
+    }
+
+    bool bookRoom(int bookingId, int roomId, const DateRange& range, const string& guest = "") {
+        string guestName = guest.empty() ? name : guest;
+        for (Room& room : HotelData::rooms) {
+            if (room.roomId == roomId && room.isAvailable()) {
+                room.status = BOOKED;
+                HotelData::bookings.emplace_back(bookingId, roomId, guestName, range);
+                cout << "Room " << roomId << " booked for " << guestName << endl;
+                return true;
+            }
+        }
+        cout << "Room " << roomId << " is not available.\n";
+        return false;
+    }
+
+    Room* getRoomById(int roomId) {
+        return HotelData::getRoomById(roomId);
+    }
+
+    Booking* getBookingById(int bookingId) {
+        return HotelData::getBookingById(bookingId);
+    }
+};
+
+// GUEST
+class Guest : public User {
+public:
+    Guest(int id, const string& n) : User(id, n) {}
+//can add a function which stores rooms booked by this guest.create a vector rooms here and a func as add Room to user after checkIn.
+
+    void cancelBooking(int bookingId) {
+        Booking* booking = getBookingById(bookingId);
+        if (booking && booking->guestName == name && booking->status == ACTIVE) {
+            booking->cancel(HotelData::rooms);
+            cout << "Guest cancelled booking ID " << bookingId << endl;
+        } else {
+            cout << "Cancellation failed: not found or not authorized.\n";
+        }
+    }
+};
+
+// RECEPTIONIST
+class Receptionist : public User {
+public:
+    Receptionist(int id, const string& n) : User(id, n) {}
+
+    void checkIn(int bookingId) {
+        Booking* booking = getBookingById(bookingId);
+        Room* room = getRoomById(booking->roomId);
+        if (booking && room) {
+            room->status = OCCUPIED;
+            cout << "Check-in completed for room " << room->roomId << endl;
+        }
+    }
+
+    void checkOut(int bookingId, int nights) {
+        Booking* booking = getBookingById(bookingId);
+        Room* room = getRoomById(booking->roomId);
+        if (booking && room) {
+            room->status = AVAILABLE;
+            booking->status = COMPLETED;
+            double bill = Bill::generateBill(*room, nights);
+            cout << "Check-out completed. Total bill: $" << bill << endl;
+        }
+    }
+};
+
+// ADMIN
+class Admin : public User {
+public:
+    Admin(int id, const string& n) : User(id, n) {}
+
+    void addRoom(const Room& room) {
+        HotelData::rooms.push_back(room);
+        cout << "Admin added Room ID " << room.roomId << endl;
+    }
+
+    void removeRoom(int roomId) {
+        auto& rooms = HotelData::rooms;
+        for (auto it = rooms.begin(); it != rooms.end(); ++it) {
+            if (it->roomId == roomId) {
+                rooms.erase(it);
+                cout << "Admin removed Room ID " << roomId << endl;
+                return;
+            }
+        }
+        cout << "Room ID " << roomId << " not found.\n";
+    }
+};
+
+// MAIN
+int main() {
+    Admin admin(1, "Admin");
+    Guest guest(2, "John");
+    Receptionist receptionist(3, "Reception");
+
+    // Admin adds rooms
+    admin.addRoom(Room(101, SINGLE, 100));
+    admin.addRoom(Room(102, DOUBLE, 150));
+
+    // Guest books a room
+    guest.searchRooms(SINGLE);
+    DateRange dr = {"2025-06-01", "2025-06-05"};
+    guest.bookRoom(1, 101, dr);
+
+    // Receptionist books for another guest
+    receptionist.bookRoom(2, 102, dr, "Alice");
+
+    // Receptionist checks in and out
+    receptionist.checkIn(1);
+    Room* r = receptionist.getRoomById(101);
+    if (r) r->housekeeping.addTask("Cleaning", 25);
+    receptionist.checkOut(1, 4);
+
+    return 0;
+}

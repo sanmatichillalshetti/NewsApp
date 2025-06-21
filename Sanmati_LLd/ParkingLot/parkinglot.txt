@@ -1,0 +1,264 @@
+#include <iostream>
+#include <vector>
+#include <unordered_map>
+#include <ctime>
+#include <thread>
+using namespace std;
+
+// ==== ENUMS ====
+enum class VehicleType { Car, Bike };
+enum class PaymentStatus { Success, Failed };
+
+// ==== VEHICLE ====
+class Vehicle {
+protected:
+    string licensePlate;
+    VehicleType type;
+public:
+    Vehicle(string plate, VehicleType type) : licensePlate(plate), type(type) {}
+    virtual ~Vehicle() = default;
+    VehicleType getType() const { return type; }
+    string getLicensePlate() const { return licensePlate; }
+};
+
+class Car : public Vehicle {
+public:
+    Car(string plate) : Vehicle(plate, VehicleType::Car) {}
+};
+
+class Bike : public Vehicle {
+public:
+    Bike(string plate) : Vehicle(plate, VehicleType::Bike) {}
+};
+
+// ==== VEHICLE FACTORY ====
+class VehicleFactory {
+public:
+    static Vehicle* createVehicle(VehicleType type, const string& plate) {
+        switch (type) {
+            case VehicleType::Car: return new Car(plate);
+            case VehicleType::Bike: return new Bike(plate);
+            default: return nullptr;
+        }
+    }
+};
+
+// ==== FEE STRATEGY ====
+class FeeStrategy {
+public:
+    virtual double calculateFee(time_t entryTime, time_t exitTime) const = 0;
+    virtual ~FeeStrategy() = default;
+};
+
+class CarFeeStrategy : public FeeStrategy {
+public:
+    double calculateFee(time_t entryTime, time_t exitTime) const override {
+        double hours = difftime(exitTime, entryTime) / 3600.0;
+        return max(1.0, hours) * 10.0;
+    }
+};
+
+class BikeFeeStrategy : public FeeStrategy {
+public:
+    double calculateFee(time_t entryTime, time_t exitTime) const override {
+        double hours = difftime(exitTime, entryTime) / 3600.0;
+        return max(1.0, hours) * 5.0;
+    }
+};
+
+class FeeStrategyFactory {
+public:
+    static FeeStrategy* getStrategy(VehicleType type) {
+        switch (type) {
+            case VehicleType::Car: return new CarFeeStrategy();
+            case VehicleType::Bike: return new BikeFeeStrategy();
+            default: return nullptr;
+        }
+    }
+};
+
+// ==== PAYMENT STRATEGY ====
+class PaymentStrategy {
+public:
+    virtual PaymentStatus pay(double amount) = 0;
+    virtual ~PaymentStrategy() = default;
+};
+
+class CashPayment : public PaymentStrategy {
+public:
+    PaymentStatus pay(double amount) override {
+        cout << "[Cash] Payment of $" << amount << " received.\n";
+        return PaymentStatus::Success;
+    }
+};
+
+class CreditCardPayment : public PaymentStrategy {
+public:
+    PaymentStatus pay(double amount) override {
+        cout << "[CreditCard] Charged $" << amount << " to credit card.\n";
+        return PaymentStatus::Success;
+    }
+};
+
+class MobileWalletPayment : public PaymentStrategy {
+public:
+    PaymentStatus pay(double amount) override {
+        cout << "[MobileWallet] Deducted $" << amount << " from wallet.\n";
+        return PaymentStatus::Success;
+    }
+};
+
+class PaymentProcessor {
+    PaymentStrategy* strategy;
+public:
+    PaymentProcessor(PaymentStrategy* s) : strategy(s) {}
+    ~PaymentProcessor() { delete strategy; }
+
+    PaymentStatus process(double amount) {
+        return strategy->pay(amount);
+    }
+};
+
+// ==== PARKING SPOT ====
+class ParkingSpot {
+    int spotId;
+    bool isFree;
+    Vehicle* currentVehicle;
+public:
+    ParkingSpot(int id) : spotId(id), isFree(true), currentVehicle(nullptr) {}
+
+    bool parkVehicle(Vehicle* v) {
+        if (!isFree) return false;
+        currentVehicle = v;
+        isFree = false;
+        return true;
+    }
+
+    void removeVehicle() {
+        currentVehicle = nullptr;
+        isFree = true;
+    }
+
+    bool getAvailability() const { return isFree; }
+    int getSpotId() const { return spotId; }
+};
+
+// ==== TICKET ====
+class Ticket {
+    static int nextId;
+    int ticketId;
+    time_t entryTime;
+    ParkingSpot* spot;
+    Vehicle* vehicle;
+    FeeStrategy* feeStrategy;
+public:
+    Ticket(Vehicle* v, ParkingSpot* s)
+        : vehicle(v), spot(s), entryTime(time(nullptr)) {
+        ticketId = ++nextId;
+        feeStrategy = FeeStrategyFactory::getStrategy(v->getType());
+    }
+
+    ~Ticket() {
+        delete feeStrategy;
+    }
+
+    double calculateFee() const {
+        time_t now = time(nullptr);
+        return feeStrategy->calculateFee(entryTime, now);
+    }
+
+    ParkingSpot* getSpot() const { return spot; }
+    Vehicle* getVehicle() const { return vehicle; }
+    int getTicketId() const { return ticketId; }
+};
+int Ticket::nextId = 0;
+
+// ==== LEVEL ====
+class Level {
+    int levelId;
+    vector<ParkingSpot> spots;
+public:
+    Level(int id, int numSpots) : levelId(id) {
+        for (int i = 0; i < numSpots; ++i)
+            spots.emplace_back(i);
+    }
+
+    ParkingSpot* findAvailableSpot() {
+        for (auto& spot : spots)
+            if (spot.getAvailability())
+                return &spot;
+        return nullptr;
+    }
+};
+
+// ==== PARKING LOT ====
+class ParkingLot {
+    vector<Level> levels;
+    unordered_map<int, Ticket*> activeTickets;
+public:
+    ParkingLot(int numLevels, int spotsPerLevel) {
+        for (int i = 0; i < numLevels; ++i)
+            levels.emplace_back(i, spotsPerLevel);
+    }
+
+    Ticket* parkVehicle(Vehicle* vehicle) {
+        for (auto& level : levels) {
+            ParkingSpot* spot = level.findAvailableSpot();
+            if (spot && spot->parkVehicle(vehicle)) {
+                Ticket* ticket = new Ticket(vehicle, spot);
+                activeTickets[ticket->getTicketId()] = ticket;
+                cout << "✅ Parked " << vehicle->getLicensePlate()
+                     << " at spot " << spot->getSpotId()
+                     << ", Ticket ID: " << ticket->getTicketId() << "\n";
+                return ticket;
+            }
+        }
+        cout << "❌ No spot available for " << vehicle->getLicensePlate() << "\n";
+        return nullptr;
+    }
+
+    void unparkVehicle(int ticketId, PaymentStrategy* strategy) {
+        auto it = activeTickets.find(ticketId);
+        if (it == activeTickets.end()) {
+            cout << "❌ Invalid ticket ID\n";
+            delete strategy;
+            return;
+        }
+
+        Ticket* ticket = it->second;
+        double fee = ticket->calculateFee();
+
+        PaymentProcessor processor(strategy);
+        if (processor.process(fee) == PaymentStatus::Success) {
+            ticket->getSpot()->removeVehicle();
+            cout << "🚗 Vehicle " << ticket->getVehicle()->getLicensePlate()
+                 << " exited. Fee paid: $" << fee << "\n";
+            delete ticket;
+            activeTickets.erase(it);
+        }
+    }
+};
+
+// ==== MAIN ====
+int main() {
+    ParkingLot lot(1, 5);  // 1 level with 5 spots
+
+    // Create vehicles using factory
+    Vehicle* car = VehicleFactory::createVehicle(VehicleType::Car, "CAR123");
+    Vehicle* bike = VehicleFactory::createVehicle(VehicleType::Bike, "BIKE456");
+
+    // Park vehicles
+    Ticket* t1 = lot.parkVehicle(car);
+    Ticket* t2 = lot.parkVehicle(bike);
+
+    // Simulate time passage
+    this_thread::sleep_for(chrono::seconds(2));
+
+    // Unpark with different payment strategies
+    if (t1) lot.unparkVehicle(t1->getTicketId(), new CreditCardPayment());
+    if (t2) lot.unparkVehicle(t2->getTicketId(), new MobileWalletPayment());
+
+    delete car;
+    delete bike;
+    return 0;
+}

@@ -1,0 +1,208 @@
+#include <iostream>
+#include <vector>
+using namespace std;
+
+// Forward declaration
+class GameContext;
+class GameState;
+
+// ---------------------------
+// Abstract State Interface
+// ---------------------------
+class GameState {
+public:
+    virtual void handle(GameContext& context) = 0;
+    virtual ~GameState() = default;
+};
+
+// ---------------------------
+// Player Class
+// ---------------------------
+class Player {
+public:
+    string name;
+    char symbol;
+
+    Player(string n, char s) : name(n), symbol(s) {}
+};
+
+// ---------------------------
+// Board Class
+// ---------------------------
+class Board {
+private:
+    vector<vector<char>> grid;
+    int size;
+
+public:
+    Board(int n = 3) : size(n) {
+        grid.resize(size, vector<char>(size, ' '));
+    }
+
+    void displayBoard() {
+        cout << "\n";
+        for (int i = 0; i < size; ++i) {
+            cout << " ";
+            for (int j = 0; j < size; ++j) {
+                cout << grid[i][j];
+                if (j < size - 1) cout << " | ";
+            }
+            cout << "\n";
+            if (i < size - 1) {
+                cout << "---";
+                for (int j = 1; j < size; ++j) cout << "+---";
+                cout << "\n";
+            }
+        }
+        cout << "\n";
+    }
+
+    bool makeMove(int row, int col, char symbol) {
+        if (isCellEmpty(row, col)) {
+            grid[row][col] = symbol;
+            return true;
+        }
+        return false;
+    }
+
+    bool isCellEmpty(int row, int col) {
+        return grid[row][col] == ' ';
+    }
+
+    bool checkWin(char symbol) {
+        // Rows and columns
+        for (int i = 0; i < size; ++i) {
+            if ((grid[i][0] == symbol && grid[i][1] == symbol && grid[i][2] == symbol) ||
+                (grid[0][i] == symbol && grid[1][i] == symbol && grid[2][i] == symbol))
+                return true;
+        }
+
+        // Diagonals
+        if ((grid[0][0] == symbol && grid[1][1] == symbol && grid[2][2] == symbol) ||
+            (grid[0][2] == symbol && grid[1][1] == symbol && grid[2][0] == symbol))
+            return true;
+
+        return false;
+    }
+
+    bool isFull() {
+        for (auto& row : grid)
+            for (char cell : row)
+                if (cell == ' ') return false;
+        return true;
+    }
+};
+
+// ---------------------------
+// GameContext Class
+// ---------------------------
+class GameContext {
+    GameState* state;
+    Player player1, player2;
+    Player* currentPlayer;
+    Board board;
+
+public:
+    GameContext(string n1, string n2)
+        : player1(n1, 'X'), player2(n2, 'O'), board(3), state(nullptr) {
+        currentPlayer = &player1;
+    }
+
+    ~GameContext() {
+        if (state) delete state;
+    }
+
+    void setState(GameState* newState) {
+        if (state) delete state;
+        state = newState;
+    }
+
+    void run() {
+        setState(new InProgressState());
+        while (state)
+            state->handle(*this);
+    }
+
+    void endGame() {
+        delete state;
+        state = nullptr;
+    }
+
+    Player* getCurrentPlayer() { return currentPlayer; }
+    void switchTurn() {
+        currentPlayer = (currentPlayer == &player1) ? &player2 : &player1;
+    }
+
+    Board& getBoard() { return board; }
+};
+
+// ---------------------------
+// InProgressState
+// ---------------------------
+class InProgressState : public GameState {
+public:
+    void handle(GameContext& context) override {
+        Board& board = context.getBoard();
+        Player* player = context.getCurrentPlayer();
+
+        board.displayBoard();
+
+        int row, col;
+        cout << player->name << "'s turn (" << player->symbol << "). Enter row and col (0-based): ";
+        cin >> row >> col;
+
+        if (row < 0 || row >= 3 || col < 0 || col >= 3) {
+            cout << "Invalid coordinates. Try again.\n";
+            return;
+        }
+
+        if (!board.makeMove(row, col, player->symbol)) {
+            cout << "Cell is already occupied. Try again.\n";
+            return;
+        }
+
+        if (board.checkWin(player->symbol)) {
+            context.setState(new WinState(player->name));
+        } else if (board.isFull()) {
+            context.setState(new DrawState());
+        } else {
+            context.switchTurn();
+        }
+    }
+};
+
+// ---------------------------
+// WinState
+// ---------------------------
+class WinState : public GameState {
+    string winner;
+public:
+    WinState(const string& winnerName) : winner(winnerName) {}
+
+    void handle(GameContext& context) override {
+        context.getBoard().displayBoard();
+        cout << "🏆 " << winner << " wins the game!\n";
+        context.endGame();
+    }
+};
+
+// ---------------------------
+// DrawState
+// ---------------------------
+class DrawState : public GameState {
+public:
+    void handle(GameContext& context) override {
+        context.getBoard().displayBoard();
+        cout << "🤝 It's a draw!\n";
+        context.endGame();
+    }
+};
+
+// ---------------------------
+// Main Function
+// ---------------------------
+int main() {
+    GameContext game("Alice", "Bob");
+    game.run();
+    return 0;
+}

@@ -1,0 +1,267 @@
+#include <iostream>
+#include <string>
+#include <unordered_map>
+#include <ctime>
+#include <thread>
+#include <chrono>
+using namespace std;
+
+// ----- ENUMS -----
+enum class ReservationStatus { Started, Completed, Cancelled };
+
+// ----- VEHICLE -----
+class Vehicle {
+protected:
+    string id;
+    string model;
+public:
+    Vehicle(string id, string model) : id(id), model(model) {}
+    virtual ~Vehicle() {}
+    string getId() const { return id; }
+    string getModel() const { return model; }
+    virtual double getPricePerHour() const = 0;
+    virtual string getType() const = 0;
+};
+
+class Car : public Vehicle {
+public:
+    Car(string id, string model) : Vehicle(id, model) {}
+    double getPricePerHour() const override { return 10.0; }
+    string getType() const override { return "Car"; }
+};
+
+class Bike : public Vehicle {
+public:
+    Bike(string id, string model) : Vehicle(id, model) {}
+    double getPricePerHour() const override { return 5.0; }
+    string getType() const override { return "Bike"; }
+};
+
+// ----- VEHICLE FACTORY -----
+class VehicleFactory {
+public:
+    static Vehicle* createVehicle(const string& type, const string& id, const string& model) {
+        if (type == "Car") return new Car(id, model);
+        if (type == "Bike") return new Bike(id, model);
+        return nullptr;
+    }
+};
+
+// ----- RESERVATION -----
+class Reservation {
+    string reservationId;
+    Vehicle* vehicle;
+    time_t startTime;
+    time_t endTime;
+    ReservationStatus status;
+public:
+    Reservation(string id, Vehicle* v) : reservationId(id), vehicle(v), startTime(0), endTime(0), status(ReservationStatus::Started) {}
+    ~Reservation() {}
+
+    string getId() const { return reservationId; }
+    Vehicle* getVehicle() const { return vehicle; }
+    ReservationStatus getStatus() const { return status; }
+
+    void start() {
+        if (status == ReservationStatus::Started && startTime == 0) {
+            startTime = time(nullptr);
+            cout << "Reservation " << reservationId << " started at " << ctime(&startTime);
+        }
+    }
+
+    void complete() {
+        if (status == ReservationStatus::Started) {
+            endTime = time(nullptr);
+            status = ReservationStatus::Completed;
+            cout << "Reservation " << reservationId << " completed at " << ctime(&endTime);
+        }
+    }
+
+    void cancel() {
+        if (status == ReservationStatus::Started) {
+            status = ReservationStatus::Cancelled;
+            cout << "Reservation " << reservationId << " cancelled.\n";
+        }
+    }
+
+    double calculatePrice() const {
+        if (status != ReservationStatus::Completed) return 0.0;
+        double duration = difftime(endTime, startTime) / 3600.0;
+        return duration * vehicle->getPricePerHour();
+    }
+};
+
+// ----- PAYMENT STRATEGY -----
+class PaymentStrategy {
+public:
+    virtual void pay(double amount, const string& reservationId) = 0;
+    virtual ~PaymentStrategy() {}
+};
+
+class CreditCardPayment : public PaymentStrategy {
+public:
+    void pay(double amount, const string& resId) override {
+        cout << "[CreditCard] Paid $" << amount << " for reservation " << resId << ".\n";
+    }
+};
+
+class PayPalPayment : public PaymentStrategy {
+public:
+    void pay(double amount, const string& resId) override {
+        cout << "[PayPal] Paid $" << amount << " for reservation " << resId << ".\n";
+    }
+};
+
+// ----- VEHICLE RENTAL -----
+class VehicleRental {
+    unordered_map<string, Vehicle*> vehicles;
+
+    // Private constructor
+    VehicleRental() {}
+
+    // Delete copy constructor and assignment
+    VehicleRental(const VehicleRental&) = delete;
+    VehicleRental& operator=(const VehicleRental&) = delete;
+
+public:
+    ~VehicleRental() {
+        for (auto& pair : vehicles) delete pair.second;
+    }
+
+    static VehicleRental& getInstance() {
+        static VehicleRental instance;  // thread-safe in C++11 and later
+        return instance;
+    }
+
+    bool addVehicle(const string& type, const string& id, const string& model) {
+        if (vehicles.count(id)) return false;
+        Vehicle* v = VehicleFactory::createVehicle(type, id, model);
+        if (!v) return false;
+        vehicles[id] = v;
+        return true;
+    }
+
+    bool removeVehicle(const string& id) {
+        auto it = vehicles.find(id);
+        if (it != vehicles.end()) {
+            delete it->second;
+            vehicles.erase(it);
+            return true;
+        }
+        return false;
+    }
+
+    Vehicle* getVehicle(const string& id) {
+        return vehicles.count(id) ? vehicles[id] : nullptr;
+    }
+
+    void listVehicles() {
+        for (auto& [id, v] : vehicles) {
+            cout << "- " << id << " [" << v->getType() << "] " << v->getModel() << "\n";
+        }
+    }
+};
+
+
+// ----- RESERVATION MANAGER -----
+class ReservationManager {
+    unordered_map<string, Reservation*> reservations;
+    VehicleRental* rental;
+public:
+    ReservationManager(VehicleRental* v) : rental(v) {}
+    ~ReservationManager() {
+        for (auto& pair : reservations) delete pair.second;
+    }
+
+    bool createReservation(const string& id, const string& vid) {
+        if (reservations.count(id)) return false;
+        Vehicle* v = rental->getVehicle(vid);
+        if (!v) return false;
+        reservations[id] = new Reservation(id, v);
+        return true;
+    }
+
+    bool startReservation(const string& id) {
+        if (!reservations.count(id)) return false;
+        reservations[id]->start();
+        return true;
+    }
+
+    bool completeReservation(const string& id) {
+        if (!reservations.count(id)) return false;
+        reservations[id]->complete();
+        return true;
+    }
+
+    Reservation* getReservation(const string& id) {
+        return reservations.count(id) ? reservations[id] : nullptr;
+    }
+
+    void listReservations() {
+        for (auto& [id, r] : reservations) {
+            cout << "- " << id << " [" << r->getVehicle()->getType() << "] "
+                 << (r->getStatus() == ReservationStatus::Completed ? "Completed" :
+                    r->getStatus() == ReservationStatus::Cancelled ? "Cancelled" : "Started") << "\n";
+        }
+    }
+};
+
+// ----- PAYMENT MANAGER -----
+class PaymentManager {
+    PaymentStrategy* strategy = nullptr;
+public:
+    void setPaymentStrategy(PaymentStrategy* s) {
+        strategy = s;
+    }
+
+    void processPayment(Reservation* r) {
+        if (!strategy || !r || r->getStatus() != ReservationStatus::Completed) {
+            cout << "Cannot process payment.\n";
+            return;
+        }
+        double amount = r->calculatePrice();
+        strategy->pay(amount, r->getId());
+    }
+};
+
+// ----- MAIN -----
+int main() {
+
+int main() {
+    VehicleRental& rental = VehicleRental::getInstance();
+    ReservationManager resManager(&rental);  // still passed via pointer
+
+    
+
+
+    PaymentManager paymentManager;
+
+    rental.addVehicle("Car", "C1", "Tesla Model 3");
+    rental.addVehicle("Bike", "B1", "Yamaha MT-15");
+
+    rental.listVehicles();
+
+    resManager.createReservation("R1", "C1");
+    resManager.startReservation("R1");
+
+    cout << "Simulating rental time...\n";
+    this_thread::sleep_for(chrono::seconds(2));
+
+    resManager.completeReservation("R1");
+
+    // Use Credit Card payment
+    CreditCardPayment* card = new CreditCardPayment();
+    paymentManager.setPaymentStrategy(card);
+    paymentManager.processPayment(resManager.getReservation("R1"));
+
+    // Change to PayPal
+    PayPalPayment* paypal = new PayPalPayment();
+    paymentManager.setPaymentStrategy(paypal);
+    paymentManager.processPayment(resManager.getReservation("R1"));
+
+    // Cleanup manually allocated payment strategies
+    delete card;
+    delete paypal;
+
+    return 0;
+}

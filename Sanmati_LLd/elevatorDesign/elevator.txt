@@ -1,0 +1,112 @@
+int main() {
+    ElevatorSystem system(3);
+
+    system.handleRequest(Request(0, 5));
+    system.handleRequest(Request(3, 1));
+
+    for (int i = 0; i < 10; ++i)
+        system.step();
+
+    return 0;
+}
+class ElevatorSystem {
+    std::vector<Elevator> elevators;
+    Controller controller;
+
+public:
+    ElevatorSystem(int n) {
+        for (int i = 0; i < n; ++i)
+            elevators.emplace_back(i);
+    }
+
+    void handleRequest(const Request& req) {
+        int elevatorId = controller.findBestElevator(elevators, req);
+        if (elevatorId != -1)
+            elevators[elevatorId].addRequest(req);
+    }
+
+    void step() {
+        for (auto& elevator : elevators)
+            elevator.move();
+    }
+};
+#include <vector>
+#include <limits>
+
+class Controller {
+public:
+    int findBestElevator(const std::vector<Elevator>& elevators, const Request& req) {
+        int minDistance = std::numeric_limits<int>::max();
+        int bestElevatorId = -1;
+
+        for (const auto& elevator : elevators) {
+            int distance = std::abs(elevator.getCurrentFloor() - req.sourceFloor);
+            if (distance < minDistance && (elevator.getStatus() == ElevatorStatus::IDLE ||
+                elevator.getDirection() == req.direction)) {
+                minDistance = distance;
+                bestElevatorId = elevator.getId();
+            }
+        }
+
+        return bestElevatorId;
+    }
+};
+#include <queue>
+#include <set>
+#include <iostream>
+
+class Elevator {
+    int id;
+    int currentFloor;
+    ElevatorStatus status;
+    Direction direction;
+    std::set<int> destinations;
+
+public:
+    Elevator(int id) : id(id), currentFloor(0), status(ElevatorStatus::IDLE), direction(Direction::IDLE) {}
+
+    void addRequest(const Request& req) {
+        destinations.insert(req.destinationFloor);
+        if (status == ElevatorStatus::IDLE)
+            direction = req.direction;
+    }
+
+    void move() {
+        if (destinations.empty()) {
+            status = ElevatorStatus::IDLE;
+            direction = Direction::IDLE;
+            return;
+        }
+
+        status = ElevatorStatus::MOVING;
+        if (direction == Direction::UP) currentFloor++;
+        else if (direction == Direction::DOWN) currentFloor--;
+
+        if (destinations.find(currentFloor) != destinations.end()) {
+            openDoor();
+            destinations.erase(currentFloor);
+        }
+    }
+
+    void openDoor() {
+        std::cout << "Elevator " << id << " opening door at floor " << currentFloor << "\n";
+        status = ElevatorStatus::STOPPED;
+    }
+
+    int getCurrentFloor() const { return currentFloor; }
+    Direction getDirection() const { return direction; }
+    ElevatorStatus getStatus() const { return status; }
+    int getId() const { return id; }
+};
+class Request {
+public:
+    int sourceFloor;
+    int destinationFloor;
+    Direction direction;
+
+    Request(int src, int dst)
+        : sourceFloor(src), destinationFloor(dst),
+          direction(src < dst ? Direction::UP : Direction::DOWN) {}
+};
+enum class Direction { UP, DOWN, IDLE };
+enum class ElevatorStatus { MOVING, STOPPED, IDLE };
